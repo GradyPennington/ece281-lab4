@@ -115,15 +115,33 @@ component elevator_controller_fsm is
                o_floor   : out STD_LOGIC_VECTOR (3 downto 0)           
              );
     end component elevator_controller_fsm;
+   
+component TDM4 is
+        generic ( constant k_WIDTH : natural  := 4); -- bits in input and output
+        Port ( i_clk        : in  STD_LOGIC;
+               i_reset        : in  STD_LOGIC; -- asynchronous
+               i_D3         : in  STD_LOGIC_VECTOR (k_WIDTH - 1 downto 0);
+               i_D2         : in  STD_LOGIC_VECTOR (k_WIDTH - 1 downto 0);
+               i_D1         : in  STD_LOGIC_VECTOR (k_WIDTH - 1 downto 0);
+               i_D0         : in  STD_LOGIC_VECTOR (k_WIDTH - 1 downto 0);
+               o_data        : out STD_LOGIC_VECTOR (k_WIDTH - 1 downto 0);
+               o_sel        : out STD_LOGIC_VECTOR (3 downto 0)    -- selected data line (one-cold)
+        );
+    end component TDM4;
     
     signal w_clk : std_logic;
+    signal w2_clk : std_logic;
+    signal w_tens : std_logic_vector(3 downto 0);
+    signal w_ones : std_logic_vector(3 downto 0);
     signal w_o : std_logic_vector(3 downto 0);
+    signal w_output : std_logic_vector(3 downto 0);
+    signal w_selector : std_logic_vector(3 downto 0);
     
 begin
 	-- PORT MAPS ----------------------------------------
 sevenSegDecoder_inst : sevenSegDecoder
            port map(
-               i_D => w_o,
+               i_D => w_output,
                o_S => seg
            );
 clkdiv_inst : clock_divider 		--instantiation of clock_divider to take 
@@ -132,7 +150,26 @@ clkdiv_inst : clock_divider 		--instantiation of clock_divider to take
            i_clk   => clk,
            i_reset => btnL or btnU,
            o_clk   => w_clk
-           );    
+           );
+clkdiv2_inst : clock_divider		--instantiation of clock_divider to take 
+                      generic map ( k_DIV => 200000 ) -- 1 Hz clock from 100 MHz
+                      port map (                          
+                      i_clk   => clk,
+                      i_reset => btnL or btnU,
+                      o_clk   => w2_clk
+                      );  
+TDM4_inst : TDM4
+    generic map (k_WIDTH => 4)
+    port map(
+        i_clk => w2_clk,
+        i_reset => btnR or btnU,
+        i_D3 => w_tens,
+        i_D2 => w_ones,
+        i_D1 => "0000",
+        i_D0 => "0000",
+        o_data => w_output,
+        o_sel => w_selector
+    );  
 elevator_controller_inst : elevator_controller_fsm
            port map (
            i_clk => w_clk,
@@ -149,9 +186,27 @@ elevator_controller_inst : elevator_controller_fsm
 	led(15) <= w_clk;
     led(14 downto 0) <= (others => '0');
 	-- leave unused switches UNCONNECTED. Ignore any warnings this causes.
-	
+    w_ones <= "0000" when (w_o = "1010") else
+              "0001" when (w_o = "1011") else
+              "0010" when (w_o = "1100") else
+              "0011" when (w_o = "1101") else
+              "0100" when (w_o = "1110") else
+              "0101" when (w_o = "1111") else
+              "0110" when (w_o = "0000") else
+              w_o;
+              
+    w_tens <= "0001" when (w_o = "1010") else
+              "0001" when (w_o = "1011") else
+              "0001" when (w_o = "1100") else
+              "0001" when (w_o = "1101") else
+              "0001" when (w_o = "1110") else
+              "0001" when (w_o = "1111") else
+              "0001" when (w_o = "0000") else
+              "0000";
 	-- wire up active-low 7SD anodes (an) as required
 	-- Tie any unused anodes to power ('1') to keep them off
-	an  <= (2 => '0', others => '1');
+	an  <= (2 => '0', others => '1') when (w_selector = "1011") else 
+	       (3=> '0', others => '1') when (w_selector = "0111") else
+	       "1111";
 	
 end top_basys3_arch;
